@@ -1,2 +1,1 @@
-# pytorchfriday
-# pytorchfriday
+# Welcome to our pytorchfriday series.
