@@ -1,16 +1,20 @@
 
 import json
 from nltk.tokenize import wordpunct_tokenize
-
+import torch
 
 
 
 class Env():
     w_2_idx = dict()
     w_2_idx["_UNK_"] = 0
+    w_2_idx["EOS"] = 1
+
 
     idx_2_w = dict()
     idx_2_w[0]="_UNK_"
+    idx_2_w[1]="EOS"
+
 
     label_2_idx = dict()
     idx_2_label = dict()
@@ -45,8 +49,9 @@ class NLIEntry():
         self.sentence1_idx = [Env.w2idx(w,update) for w in self.sentence1]
         self.sentence2_idx = [Env.w2idx(w,update) for w in self.sentence2]
 
-
-
+    def get_joint_sentences_tensor(self):
+        EOS = [Env.w2idx("EOS",update=False)]
+        return torch.tensor([self.sentence1_idx + EOS + self.sentence2_idx + EOS],dtype=torch.long)
 
 def read_NLIEntries(jsonfile,update_w2idx=True):
     """the common Json keys across both datasets are
