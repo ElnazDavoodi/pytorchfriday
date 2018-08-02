@@ -32,4 +32,3 @@ data/nli/snli_1.0/snli_1.0_test.jsonl
 data/nli/snli_1.0/snli_1.0_test.txt
 data/nli/snli_1.0/snli_1.0_train.jsonl
 data/nli/snli_1.0/snli_1.0_train.txt
-sentence_to_label_network.py
