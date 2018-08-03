@@ -2,7 +2,7 @@
 import json
 from nltk.tokenize import wordpunct_tokenize
 import torch
-
+import numpy as np
 
 
 class Env():
@@ -51,7 +51,13 @@ class NLIEntry():
 
     def get_joint_sentences_tensor(self):
         EOS = [Env.w2idx("EOS",update=False)]
-        return torch.tensor([self.sentence1_idx + EOS + self.sentence2_idx + EOS],dtype=torch.long)
+        return torch.tensor(self.sentence1_idx + EOS + self.sentence2_idx + EOS,dtype=torch.long)
+
+    def get_joint_sentences_list(self):
+        EOS = [Env.w2idx("EOS",update=False)]
+        return self.sentence1_idx + EOS + self.sentence2_idx + EOS
+
+
 
 def read_NLIEntries(jsonfile,update_w2idx=True):
     """the common Json keys across both datasets are
@@ -69,12 +75,48 @@ def read_NLIEntries(jsonfile,update_w2idx=True):
     entries = []
     for line in open(jsonfile).readlines():
         j = json.loads(line)
+        #if the lable is not set to any of the three labels, ignore the data
+        if (j["gold_label"] not in ["contradiction","entailment","neutral"]):
+            continue
         #If we use SNLI it contains no genre, so we infer it is a caption
         if "genre" not in j:
             j["genre"]="caption"
         entries.append(NLIEntry(j["genre"],j["gold_label"],j["pairID"],j["sentence1"],j["sentence2"],update=update_w2idx))
     return entries
 
+def read_NLIEntries_and_get_matrix(jsonfile,update_w2idx=True):
+    """the common Json keys across both datasets are
+    ['annotator_labels',
+   'genre',
+   'gold_label',
+   'pairID',
+   'sentence1',
+   'sentence1_binary_parse',
+   'sentence1_parse',
+   'sentence2',
+   'sentence2_binary_parse',
+   'sentence2_parse']
+    """
+    entries = []
+    for line in open(jsonfile).readlines():
+        j = json.loads(line)
+        #if the lable is not set to any of the three labels, ignore the data
+        if (j["gold_label"] not in ["contradiction","entailment","neutral"]):
+            continue
+        #If we use SNLI it contains no genre, so we infer it is a caption
+        if "genre" not in j:
+            j["genre"]="caption"
+        entries.append(NLIEntry(j["genre"],j["gold_label"],j["pairID"],j["sentence1"],j["sentence2"],update=update_w2idx))
+    X = []
+    y = []
+    for e in entries:
+        X.append(e.get_joint_sentences_list())
+        y.append([e.gold_label])
+    print("14",len(X[0]))
+    print("35",len(X[1]))
+    #X=torch.tensor(X, dtype=torch.long)
+    #y=torch.tensor(y, dtype=torch.long)
+    return np.array(X),np.array(y)
 
 def main():
     infile = "data/nli/multinli_1.0/multinli_1.0_train.jsonl"
