@@ -69,6 +69,7 @@ def read_NLIEntries(jsonfile,update_w2idx=True):
     entries = []
     for line in open(jsonfile).readlines():
         j = json.loads(line)
+        #if the lable is not set to any of the three labels, ignore the data
         if (j["gold_label"] not in ["contradiction","entailment","neutral"]):
             continue
         #If we use SNLI it contains no genre, so we infer it is a caption
