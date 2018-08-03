@@ -54,7 +54,7 @@ for epoch in range(30):  # again, normally you would NOT do 300 epochs, it is to
     print("Starting epoch #",epoch,"\n")
     counter = 0
     avg_loss = 0.0
-    for entry in dev_entries[0:500]:
+    for entry in dev_entries:
         model.hidden = model.init_hidden()
         sentence_in = entry.get_joint_sentences_tensor()
         tag_idx = entry.gold_label
@@ -78,8 +78,11 @@ for epoch in range(30):  # again, normally you would NOT do 300 epochs, it is to
         # Step 4. Compute the loss, gradients, and update the parameters by
         #  calling optimizer.step()
         loss = loss_function(tag_scores, gold_tag_space)
+        # calculating the avg_loss value for train data
+
         avg_loss += loss.item()
         if counter % 500 == 0:
-            print(avg_loss/counter)
+            print("Avg. loss = ",avg_loss/counter)
+
         loss.backward(retain_graph=True)
         optimizer.step()
