@@ -42,8 +42,11 @@ class Env():
 class NLIEntry():
     def __init__(self,genre,gold_label,pairID,sentence1,sentence2,update=True):
         self.gold_label = Env.label2idx(gold_label)
+        self.gold_label_text = gold_label
         self.genre = genre
         self.pairID = pairID
+        self.sentence1raw = sentence1
+        self.sentence2raw = sentence2
         self.sentence1 = wordpunct_tokenize(sentence1)
         self.sentence2 = wordpunct_tokenize(sentence2)
         self.sentence1_idx = [Env.w2idx(w,update) for w in self.sentence1]
@@ -57,6 +60,8 @@ class NLIEntry():
         EOS = [Env.w2idx("EOS",update=False)]
         return self.sentence1_idx + EOS + self.sentence2_idx + EOS
 
+    def get_joint_sentences_text(self):
+        return self.sentence1raw + " EOS " + self.sentence2raw + " EOS"
 
 
 def read_NLIEntries(jsonfile,update_w2idx=True):
