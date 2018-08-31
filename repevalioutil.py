@@ -63,6 +63,9 @@ class NLIEntry():
     def get_joint_sentences_text(self):
         return self.sentence1raw + " EOS " + self.sentence2raw + " EOS"
 
+    def get_separate_sentences_text(self):
+        return (self.sentence1raw, self.sentence2raw)
+
 
 def read_NLIEntries(jsonfile,update_w2idx=True):
     """the common Json keys across both datasets are

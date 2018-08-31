@@ -1,5 +1,6 @@
 """
-two input LSTMS merged into one single layer for NLI prediction
+1) two input LSTMS merged into one single layer for NLI prediction
+2) We add Dropout
 """
 import re,os,random,tarfile, codecs, copy
 from torchtext import data
@@ -97,6 +98,8 @@ class LSTMClassifierMiniBatch(nn.Module):
         self.hidden_s1 = self.init_hidden()
         self.hidden_s2 = self.init_hidden()
 
+        self.drop = nn.Dropout(0.3)
+
         self.loss_function = nn.NLLLoss()
 
     def init_hidden(self):
@@ -115,8 +118,10 @@ class LSTMClassifierMiniBatch(nn.Module):
         lstm_out_s2, self.hidden_s2 = self.lstm_s2(x_s2, self.hidden_s2)
 
         joint_lstm_out = torch.cat((lstm_out_s1[-1],lstm_out_s2[-1]),1)
+
         y = self.hidden2label(joint_lstm_out)
-        log_probs = F.log_softmax(y, dim=1)
+        y_drop = self.drop(y)
+        log_probs = F.log_softmax(y_drop, dim=1)
         return log_probs
 
     def train_epoch(self,epoch_number,train_iter):

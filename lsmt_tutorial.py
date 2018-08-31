@@ -4,6 +4,8 @@ import torch.nn.functional as F
 import torch.optim as optim
 import copy
 
+#https://discuss.pytorch.org/t/runtimeerror-trying-to-backward-through-the-graph-a-second-time-but-the-buffers-have-already-been-freed-specify-retain-graph-true-when-calling-backward-the-first-time/6795/5
+
 torch.manual_seed(1)
 def prepare_sequence(seq, to_ix):
     idxs = [to_ix[w] for w in seq]
