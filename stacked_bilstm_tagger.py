@@ -25,6 +25,19 @@ pos_train = "/Users/u6067443/proj/pytorchfriday/data/pos/pos_ud_en/pos_ud_en_tra
 pos_test = "/Users/u6067443/proj/pytorchfriday/data/pos/pos_ud_en/pos_ud_en_test.conll"
 
 
+char2idx = {}
+idx2char = {}
+char2idx["_UNK_"] = 0
+idx2char[0] = "_UNK_"
+
+def update_char_dicts(word):
+    word = "^"+word+"$"
+    for c in word:
+        if c not in char2idx:
+            new_idx  = len(char2idx.keys())
+            char2idx[c] = new_idx
+            char2idx[new_idx] = c
+
 class LabeledSentence():
     def __init__(self,words_raw,labels_raw):
         self.words_raw = words_raw
@@ -39,6 +52,8 @@ def read_labeled_sentences(infile):
             word,label = line.split("\t")
             word_accum.append(word)
             label_accum.append(label)
+            #Next step necessary for character embeddings
+            update_char_dicts(word)
         else:
             sentences.append(LabeledSentence(words_raw=word_accum,labels_raw=label_accum))
             word_accum, label_accum = [], []
@@ -48,6 +63,8 @@ def read_labeled_sentences(infile):
 
 class dataset_loader(torchtextdata.Dataset):
 
+
+    #TODO we need to create text field as reversible for later character lookup
     @staticmethod
     def sort_key(sent):
         return len(sent.words_raw)
@@ -161,6 +178,71 @@ class LSTMTagger(nn.Module):
         #epoch_number, avg_loss, get_accuracy(truth_res, pred_res_tensor)))
         print('epoch: %d done!\ntrain avg_loss:%g' % (epoch_number, avg_loss))
 
+class LSTMTaggerWithChar(LSTMTagger):
+    def __init__(self, embedding_dim, hidden_dim, num_layers,dropout, vocab_size, tagset_size):
+        super(LSTMTagger, self).__init__()
+
+        #TODO we need to change the input dimensions of the regular lsmt
+        #Declare hyperparameters here
+        self.hidden_dim = hidden_dim
+        self.num_layers = num_layers
+        self.bidirectional = True
+        self.num_directions = 1+int(self.bidirectional)
+        self.alphabet_size = len(char2idx.keys())
+        self.char_embedding_dim = 20
+        self.char_hidden_size = 10
+        self.char_num_layers = 1
+        self.char_bidirectional = False
+        self.char_num_directions = 1+int(self.char_bidirectional)
+        #Declare layers from here
+        self.char_embeddings = nn.Embedding(self.alphabet_size, self.char_embedding_dim)
+        self.char_lstm = nn.LSTM(input_size=self.char_embedding_dim, hidden_size=self.char_hidden_size,
+                             num_layers=self.char_num_layers,dropout=dropout,bidirectional=self.char_bidirectional)
+        self.word_embeddings = nn.Embedding(vocab_size, embedding_dim)
+        self.lstm = nn.LSTM(input_size=embedding_dim + self.char_hidden_size, hidden_size=hidden_dim,
+                            num_layers=num_layers, dropout=dropout, bidirectional=self.bidirectional)
+        self.hidden2tag = nn.Linear(hidden_dim * self.num_directions, tagset_size)
+        self.hidden = self.init_hidden()
+        self.char_hidden = self.init_hidden_char()
+
+    def init_hidden_char(self):
+        # Before we've done anything, we dont have any hidden state.
+        # Refer to the Pytorch documentation to see exactly
+        # why they have this dimensionality.
+        # The axes semantics are (num_layers, minibatch_size, hidden_dim)
+        return (torch.zeros(self.char_num_layers*self.char_num_directions, 1, self.char_hidden_size),
+                torch.zeros(self.char_num_layers*self.char_num_directions, 1, self.char_hidden_size))
+
+
+    def get_char_tensor(self,word):
+        word = "^" + word + "$"
+        char_idxs = []
+        for c in word:
+            if c in char2idx:
+                idx=char2idx[c]
+            else:
+                idx=char2idx["_UNK_"]
+            char_idxs.append(idx)
+        char_tensor = torch.tensor(char_idxs, dtype=torch.int64, device=device)
+        return char_tensor
+
+
+    def forward(self, sentence):
+        charbased_wembeds_accumulator = []
+        for w in sentence:
+            char_list = self.get_char_tensor(w)
+            char_embeds = self.char_embeddings(char_list)
+            char_lstm_out, self.char_hidden = self.lstm(
+                char_embeds.view(len(char_list), 1, -1), self.char_hidden)
+            charbased_wembeds_accumulator.append(char_lstm_out)
+        charbased_wembeds_tensor = torch.tensor(charbased_wembeds_accumulator, dtype=torch.int64, device=device)
+        embeds = self.word_embeddings(sentence)
+        char_plus_word_concat = torch.cat([embeds,charbased_wembeds_tensor])
+        lstm_out, self.hidden = self.lstm(
+            char_plus_word_concat.view(len(sentence), 1, -1), self.hidden)
+        tag_space = self.hidden2tag(lstm_out.view(len(sentence), -1))
+        tag_scores = F.log_softmax(tag_space, dim=1)
+        return tag_scores
 
 train_iter, dev_iter, sentence_field,labels_field = load_data(batch_size=1)
 
@@ -170,7 +252,8 @@ tagset_size = len(labels_field.vocab)
 print("vocab size",vocab_size)
 print("tagset size",tagset_size)
 
-model = LSTMTagger(embedding_dim, hidden_dim, num_layers,dropout, vocab_size, tagset_size)
+#model = LSTMTagger(embedding_dim, hidden_dim, num_layers,dropout, vocab_size, tagset_size)
+model = LSTMTaggerWithChar(embedding_dim, hidden_dim, num_layers,dropout, vocab_size, tagset_size)
 model.loss_function = nn.CrossEntropyLoss()
 optimizer = optim.SGD(model.parameters(), lr=0.1)
 
