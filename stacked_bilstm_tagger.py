@@ -263,6 +263,7 @@ class LSTMTaggerWithChar(LSTMTagger):
         print("emebds",embeds.shape)
         print("charembeds",charbased_wembeds_tensor.shape)
         print(original_sentence)
+        #TODO EXAMINE MORE CAREFULLY SIZE MISMATCHES BETWEEN WORD AND CHAR EMBEDS
         char_plus_word_concat = torch.cat([embeds,charbased_wembeds_tensor],dim=2)
         print("together",char_plus_word_concat.shape)
         lstm_out, self.hidden = self.lstm(
