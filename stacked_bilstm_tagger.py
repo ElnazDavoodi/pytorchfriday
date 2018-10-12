@@ -4,6 +4,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torchtext import data as torchtextdata
 from torchtext.data import Field
+import revtok
 import copy
 device = torch.device('cpu')
 
@@ -30,6 +31,12 @@ idx2char = {}
 char2idx["_UNK_"] = 0
 idx2char[0] = "_UNK_"
 
+global sentence_field
+
+
+def spacefunct(sent):
+    return ["a","b","c"]
+
 def update_char_dicts(word):
     word = "^"+word+"$"
     for c in word:
@@ -55,10 +62,13 @@ def read_labeled_sentences(infile):
             #Next step necessary for character embeddings
             update_char_dicts(word)
         else:
-            sentences.append(LabeledSentence(words_raw=word_accum,labels_raw=label_accum))
+            #sentences.append(LabeledSentence(words_raw=word_accum,labels_raw=label_accum))
+            sentences.append(LabeledSentence(words_raw=" ".join(word_accum),labels_raw=label_accum))
             word_accum, label_accum = [], []
     if len(word_accum) > 0:
-        sentences.append(LabeledSentence(words_raw=word_accum, labels_raw=label_accum))
+        #sentences.append(LabeledSentence(words_raw=word_accum, labels_raw=label_accum))
+        sentences.append(LabeledSentence(words_raw=" ".join(word_accum), labels_raw=label_accum))
+    #print(sentences[0].words_raw,sentences[1].words_raw,sentences[2].words_raw)
     return sentences
 
 class dataset_loader(torchtextdata.Dataset):
@@ -105,8 +115,8 @@ def read_train_and_dev_splits(sentence, labels, batch_size):
     return train_iter, dev_iter
 
 def load_data(batch_size):
-    # text_field = data.ReversibleField(lower=True)
-    sentence_field = torchtextdata.Field(lower=False,sequential=True) #We will take care of lowercasing after the character model
+    #sentence_field = data.ReversibleField(lower=True)
+    sentence_field = torchtextdata.ReversibleField(lower=False,sequential=True) #We will take care of lowercasing after the character model
     labels_field = torchtextdata.Field(lower=False,sequential=True)
     [train_iter, dev_iter] = read_train_and_dev_splits(sentence_field,labels_field, batch_size)
     return [train_iter, dev_iter, sentence_field,labels_field]
@@ -228,21 +238,74 @@ class LSTMTaggerWithChar(LSTMTagger):
 
 
     def forward(self, sentence):
-        charbased_wembeds_accumulator = []
-        for w in sentence:
+        original_sentence = sentence_field.reverse(sentence)[0]
+        for w_idx,w in enumerate(original_sentence.split(" ")):
             char_list = self.get_char_tensor(w)
+            #print(w,"char_list",char_list.shape)
             char_embeds = self.char_embeddings(char_list)
-            char_lstm_out, self.char_hidden = self.lstm(
+            #print(w,"char_embeds",char_embeds.shape)
+            char_lstm_out, self.char_hidden = self.char_lstm(
                 char_embeds.view(len(char_list), 1, -1), self.char_hidden)
-            charbased_wembeds_accumulator.append(char_lstm_out)
-        charbased_wembeds_tensor = torch.tensor(charbased_wembeds_accumulator, dtype=torch.int64, device=device)
+            #final_char_output = char_lstm_out[-1,:,:self.char_hidden_size]
+            final_char_output = char_lstm_out[-1,:,:].view(1,1,-1)
+            #print("charlsmtout", char_lstm_out.shape,":",final_char_output.shape)
+            if w_idx == 0:
+                charbased_wembeds_accumulator = final_char_output
+            else:
+                charbased_wembeds_accumulator=torch.cat([charbased_wembeds_accumulator,final_char_output])
+            #charbased_wembeds_accumulator.append(char_lstm_out)
+            #print(w,char_lstm_out)
+            #print(w,char_lstm_out.shape)
+        print("-----")
+        charbased_wembeds_tensor = charbased_wembeds_accumulator
+        #charbased_wembeds_tensor = torch.tensor(charbased_wembeds_accumulator, dtype=torch.int64, device=device)
         embeds = self.word_embeddings(sentence)
-        char_plus_word_concat = torch.cat([embeds,charbased_wembeds_tensor])
+        print("emebds",embeds.shape)
+        print("charembeds",charbased_wembeds_tensor.shape)
+        print(original_sentence)
+        char_plus_word_concat = torch.cat([embeds,charbased_wembeds_tensor],dim=2)
+        print("together",char_plus_word_concat.shape)
         lstm_out, self.hidden = self.lstm(
             char_plus_word_concat.view(len(sentence), 1, -1), self.hidden)
         tag_space = self.hidden2tag(lstm_out.view(len(sentence), -1))
         tag_scores = F.log_softmax(tag_space, dim=1)
         return tag_scores
+
+    def train_epoch(self, epoch_number, train_iter):
+        avg_loss = 0.0
+        count = 0
+        truth_res = []
+        pred_res = []
+        pred_res_tensor = []
+        self.train()
+        optimizer = optim.Adam(self.parameters(), lr=1e-3)
+        for batch in train_iter:
+            sentence, labels = batch.sentence, batch.labels
+            labels.data.sub_(1)
+            truth_res += list(labels.data)
+
+            self.batch_size = len(labels.data)
+            self.hidden = self.init_hidden()  # detaching it from its history on the last instance.
+            pred = self(sentence)
+            # print("shape of prediction",pred.shape)
+            # print("shape of gold labels",labels.shape)
+
+            self.zero_grad()
+            loss = self.loss_function(pred, labels.squeeze(1))
+            avg_loss += loss.item()
+            count += 1
+            if count % 100 == 0:
+                print('epoch: %d iterations: %d loss :%g' % (epoch_number, count, loss.data.item()))
+            loss.backward(retain_graph=True)
+            optimizer.step()
+            pred = pred.to(device)
+            pred_label = pred.data.max(1)[1].numpy()
+            pred_res += [x for x in pred_label]
+        pred_res_tensor += [torch.tensor(x, dtype=torch.int64, device=device) for x in pred_res]
+        avg_loss /= len(train_iter)
+        # print('epoch: %d done!\ntrain avg_loss:%g , acc:%g' % (
+        # epoch_number, avg_loss, get_accuracy(truth_res, pred_res_tensor)))
+        print('epoch: %d done!\ntrain avg_loss:%g' % (epoch_number, avg_loss))
 
 train_iter, dev_iter, sentence_field,labels_field = load_data(batch_size=1)
 
@@ -251,6 +314,11 @@ tagset_size = len(labels_field.vocab)
 
 print("vocab size",vocab_size)
 print("tagset size",tagset_size)
+
+#for data in train_iter:
+    #pass
+    #print(sentence_field.reverse(data.sentence))
+
 
 #model = LSTMTagger(embedding_dim, hidden_dim, num_layers,dropout, vocab_size, tagset_size)
 model = LSTMTaggerWithChar(embedding_dim, hidden_dim, num_layers,dropout, vocab_size, tagset_size)
